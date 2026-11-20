@@ -25,7 +25,7 @@ micro:bit ──("shot")──▶ Webページ ──▶ カメラで撮影
 
 1. https://makecode.microbit.org/ でプロジェクトを開く（または新しく作る）
 2. 「拡張機能」から **bluetooth** を追加する（radio を外してよいか聞かれたら OK）
-3. 歯車 →「プロジェクトの設定」→ **JustWorks pairing (default)** がオンになっていることを確認
+3. 歯車 →「プロジェクトの設定」→ **No Pairing Required: Anyone can connect via Bluetooth.** をオンにする
 4. 「JavaScript」タブに `microbit/main.ts` の中身を貼り付ける（ブロックに戻すとブロックで見られます）
 5. ダウンロードして micro:bit に書き込む → 画面に四角が出れば待機中
 
@@ -50,9 +50,11 @@ iPhone / iPad の Safari・Chrome は Web Bluetooth 非対応なので、App Sto
 1. micro:bit は電池につなぐ（USB でも可）
 2. Bluefy で公開したページの URL を開く
 3. 「カメラ開始」→ カメラの使用を許可
-4. 「**Bluetooth で接続**」→ `BBC micro:bit [....]` を選ぶ
-5. 初回は「ペアリングしますか？」と聞かれるので「ペアリング」→ micro:bit が笑顔になる
-6. ボタン A を押す → 撮影
+4. 「**Bluetooth で接続**」→ `BBC micro:bit [....]` を選ぶ → micro:bit が笑顔になる
+5. ボタン A を押す → 撮影
+
+- 以前ペアリングしたことがある場合は、iPhone/iPad の「設定 → Bluetooth」で micro:bit の「ⓘ」→「このデバイスの登録を解除」をしておく
+- micro:bit は一度に 1 台としかつながれません。PC などとつながっていないか確認してください
 
 ## 4. 公開（GitHub Pages の例）
 

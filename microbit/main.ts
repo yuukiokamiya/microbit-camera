@@ -3,7 +3,8 @@
 //
 // 事前準備:
 //   1. 拡張機能から「bluetooth」を追加（「radio」を外してよいか聞かれたら OK）
-//   2. 歯車 → プロジェクトの設定 → 「JustWorks pairing (default)」のままにする
+//   2. 歯車 → プロジェクトの設定 → 「No Pairing Required: Anyone can connect via Bluetooth.」をオン
+//      （PC は USB でつなぐので、Bluetooth はペアリングなしで iPhone/iPad からつなぐ）
 
 // 撮影の合図を USB と Bluetooth の両方に送る
 function sendShot () {

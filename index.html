@@ -140,6 +140,17 @@ function log(msg) {
   el.scrollTop = el.scrollHeight;
 }
 
+// ブラウザによってはエラーが Error ではなく文字列やオブジェクトで届くので、どれでも読めるようにする
+function errText(e) {
+  if (e == null) return String(e);
+  if (typeof e === "string") return e;
+  if (e.message) return e.message;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+function errName(e) {
+  return (e && e.name) || (typeof e === "string" ? "" : "Error");
+}
+
 function setStatus(connected, text) {
   $("dot").classList.toggle("on", connected);
   $("statusText").textContent = text;
@@ -177,8 +188,8 @@ async function startCamera(deviceId) {
     log(`カメラ開始: ${s.width}×${s.height}`);
     await listCameras(s.deviceId);
   } catch (e) {
-    log("カメラを開けませんでした: " + e.message);
-    alert("カメラを開けませんでした。ブラウザのカメラ許可を確認してください。\n" + e.message);
+    log("カメラを開けませんでした: " + errText(e));
+    alert("カメラを開けませんでした。ブラウザのカメラ許可を確認してください。\n" + errText(e));
   }
 }
 
@@ -303,7 +314,7 @@ $("btnConnect").onclick = async () => {
         chars = await service.getCharacteristics();
         break;
       } catch (e) {
-        log(`   失敗: ${e.message}`);
+        log(`   失敗: ${errText(e)}`);
         if (attempt === 5) throw e;
         if (device.gatt.connected) device.gatt.disconnect();
         await sleep(1000);
@@ -330,12 +341,12 @@ $("btnConnect").onclick = async () => {
   } catch (e) {
     setStatus(false, "未接続");
     if (device && device.gatt.connected) device.gatt.disconnect();
-    if (e.name !== "NotFoundError") {
-      log(`接続エラー: [${e.name}] ${e.message}`);
+    if (errName(e) !== "NotFoundError") {
+      log(`接続エラー: [${errName(e)}] ${errText(e)}`);
       // alert だとログ欄が更新されないので、ページ上部に表示する
       const n = $("notice");
       n.hidden = false;
-      n.textContent = "接続できませんでした：" + e.message + "（詳しくは右下のログを見てください）";
+      n.textContent = "接続できませんでした：" + errText(e) + "（詳しくは右下のログを見てください）";
     } else {
       log("接続をキャンセルしました");
     }
@@ -371,13 +382,13 @@ $("btnUsb").onclick = async () => {
     readUsbLoop();
   } catch (e) {
     port = null;
-    if (e.name === "NotFoundError") {
+    if (errName(e) === "NotFoundError") {
       log("接続をキャンセルしました");
     } else {
-      log(`USB 接続エラー: [${e.name}] ${e.message}`);
+      log(`USB 接続エラー: [${errName(e)}] ${errText(e)}`);
       const n = $("notice");
       n.hidden = false;
-      n.textContent = "USB で接続できませんでした：" + e.message +
+      n.textContent = "USB で接続できませんでした：" + errText(e) +
         "（MakeCode など、ほかのタブが micro:bit を使っていないか確認してください）";
     }
   }
@@ -399,7 +410,7 @@ async function readUsbLoop() {
       }
     }
   } catch (e) {
-    log("USB 読み取りエラー: " + e.message);
+    log("USB 読み取りエラー: " + errText(e));
   }
   if (port) await closeUsb();
 }
@@ -451,7 +462,7 @@ async function sendToMicrobit(text) {
     if (writer) await writer.write(enc.encode(text + "\n"));
     else if (rxChar) await rxChar.writeValue(enc.encode(text + "\n"));
   } catch (e) {
-    log("micro:bit への送信に失敗: " + e.message);
+    log("micro:bit への送信に失敗: " + errText(e));
   }
 }
 </script>
