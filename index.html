@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>micro:bit カメラ</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --card: #ffffff;
+    --ink: #222;
+    --sub: #777;
+    --accent: #ff5a5f;
+    --ok: #2bb673;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 18px;
+  }
+  h1 { font-size: 20px; margin: 0 12px 0 0; }
+  button, select {
+    font: inherit; font-size: 15px;
+    border: none; border-radius: 999px;
+    padding: 9px 16px; cursor: pointer;
+    background: #e8e6e1; color: var(--ink);
+  }
+  button.primary { background: var(--ink); color: #fff; }
+  button.shutter { background: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .status {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 14px; color: var(--sub);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #bbb; }
+  .dot.on { background: var(--ok); }
+  main {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    gap: 16px; padding: 0 18px 18px;
+  }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border-radius: var(--radius); padding: 12px; }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+  video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  video.mirror { transform: scaleX(-1); }
+  .flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+    transition: opacity .35s ease-out;
+  }
+  .flash.go { opacity: .9; transition: none; }
+  .countdown {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 120px; font-weight: 700; color: #fff; text-shadow: 0 4px 20px rgba(0,0,0,.5);
+    pointer-events: none;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 10px; font-size: 14px; }
+  .controls label { display: inline-flex; align-items: center; gap: 6px; }
+  h2 { font-size: 15px; margin: 4px 0 10px; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .gallery figure { margin: 0; position: relative; }
+  .gallery img { width: 100%; border-radius: 8px; display: block; cursor: pointer; }
+  .gallery figcaption { font-size: 11px; color: var(--sub); margin-top: 2px; }
+  .empty { color: var(--sub); font-size: 13px; }
+  #log {
+    margin-top: 16px; font: 12px/1.5 ui-monospace, Consolas, monospace;
+    background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 8px;
+    height: 160px; overflow-y: auto; white-space: pre-wrap;
+  }
+  .notice {
+    margin: 0 18px 12px; padding: 10px 14px; border-radius: 10px;
+    background: #fff3cd; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📷 micro:bit カメラ</h1>
+  <button id="btnConnect" class="primary">Bluetooth で接続</button>
+  <button id="btnUsb" class="primary">USB で接続</button>
+  <button id="btnDisconnect" disabled>切断</button>
+  <span class="status"><span id="dot" class="dot"></span><span id="statusText">未接続</span></span>
+</header>
+
+<div id="notice" class="notice" hidden></div>
+
+<main>
+  <section class="card">
+    <div class="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="flash" class="flash"></div>
+      <div id="countdown" class="countdown"></div>
+    </div>
+    <div class="controls">
+      <button id="btnStartCam">カメラ開始</button>
+      <select id="camSelect" title="カメラを選ぶ"></select>
+      <button id="btnShot" class="shutter" disabled>テスト撮影</button>
+      <label><input type="checkbox" id="chkMirror"> 左右反転</label>
+      <label><input type="checkbox" id="chkAutoSave"> 撮影ごとに自動保存</label>
+      <label>カウントダウン
+        <select id="selCountdown">
+          <option value="0">なし</option>
+          <option value="3">3秒</option>
+          <option value="5">5秒</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>撮った写真 <span id="count" class="empty"></span></h2>
+    <div id="gallery" class="gallery"><p class="empty">まだありません</p></div>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+// ===== 設定 =====
+// micro:bit から届いたらシャッターを切る言葉（大文字小文字は区別しない）
+const SHOT_COMMAND = "shot";
+
+// micro:bit の UART サービス (Nordic UART 互換)
+const UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+
+// ===== 画面の部品 =====
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  const el = $("log");
+  el.textContent += `[${t}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(connected, text) {
+  $("dot").classList.toggle("on", connected);
+  $("statusText").textContent = text;
+  $("btnConnect").disabled = connected;
+  $("btnUsb").disabled = connected;
+  $("btnDisconnect").disabled = !connected;
+}
+
+// ===== 動作環境チェック =====
+// 使えない接続方法のボタンは隠す（iPhone/iPad の Bluefy では USB は使えない）
+if (!navigator.serial) $("btnUsb").hidden = true;
+if (!navigator.bluetooth) $("btnConnect").hidden = true;
+if (!navigator.bluetooth && !navigator.serial) {
+  const n = $("notice");
+  n.hidden = false;
+  n.textContent = "このブラウザでは micro:bit に接続できません。Windows/Mac は Chrome か Edge、iPhone/iPad は Bluefy で開いてください。";
+}
+
+// ===== カメラ =====
+let stream = null;
+
+async function startCamera(deviceId) {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  const constraints = {
+    audio: false,
+    video: deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+  };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    $("btnShot").disabled = false;
+    const s = stream.getVideoTracks()[0].getSettings();
+    log(`カメラ開始: ${s.width}×${s.height}`);
+    await listCameras(s.deviceId);
+  } catch (e) {
+    log("カメラを開けませんでした: " + e.message);
+    alert("カメラを開けませんでした。ブラウザのカメラ許可を確認してください。\n" + e.message);
+  }
+}
+
+async function listCameras(currentId) {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter((d) => d.kind === "videoinput");
+  const sel = $("camSelect");
+  sel.innerHTML = "";
+  cams.forEach((c, i) => {
+    const o = document.createElement("option");
+    o.value = c.deviceId;
+    o.textContent = c.label || `カメラ ${i + 1}`;
+    if (c.deviceId === currentId) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+$("btnStartCam").onclick = () => startCamera($("camSelect").value || undefined);
+$("camSelect").onchange = (e) => startCamera(e.target.value);
+$("chkMirror").onchange = (e) => video.classList.toggle("mirror", e.target.checked);
+
+// ===== 撮影 =====
+let shotCount = 0;
+let busy = false;
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function takePhoto(source) {
+  if (!stream) { log("カメラが開始されていません"); return; }
+  if (busy) return;
+  busy = true;
+  try {
+    const sec = Number($("selCountdown").value);
+    for (let i = sec; i > 0; i--) {
+      $("countdown").textContent = i;
+      await sleep(1000);
+    }
+    $("countdown").textContent = "";
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if ($("chkMirror").checked) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, 0, 0);
+
+    // フラッシュ演出
+    const f = $("flash");
+    f.classList.add("go");
+    requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove("go")));
+
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+    const url = URL.createObjectURL(blob);
+    const name = `microbit_${timestamp()}.jpg`;
+    addToGallery(url, name);
+    shotCount++;
+    log(`撮影しました (${source}) → ${name}`);
+
+    if ($("chkAutoSave").checked) download(url, name);
+    sendToMicrobit("ok");
+  } finally {
+    busy = false;
+  }
+}
+
+function timestamp() {
+  const d = new Date();
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}_${p(d.getMilliseconds(), 3)}`;
+}
+
+function addToGallery(url, name) {
+  const g = $("gallery");
+  if (shotCount === 0) g.innerHTML = "";
+  const fig = document.createElement("figure");
+  const img = document.createElement("img");
+  img.src = url;
+  img.title = "クリックで保存";
+  img.onclick = () => download(url, name);
+  const cap = document.createElement("figcaption");
+  cap.textContent = new Date().toLocaleTimeString();
+  fig.append(img, cap);
+  g.prepend(fig);
+  $("count").textContent = `(${shotCount + 1}枚)`;
+}
+
+function download(url, name) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+}
+
+$("btnShot").onclick = () => takePhoto("テスト");
+
+// ===== micro:bit (Bluetooth UART) =====
+let device = null;
+let rxChar = null;   // micro:bit へ書き込む
+let lineBuf = "";
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+$("btnConnect").onclick = async () => {
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "BBC micro:bit" }],
+      optionalServices: [UART_SERVICE],
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    setStatus(false, "接続中…");
+    log(`接続中: ${device.name}`);
+
+    // Windows では接続直後に一度切れることがあるので、最大 5 回までつなぎ直す
+    let chars = null;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        log(`① GATT 接続…（${attempt}回目）`);
+        const server = await device.gatt.connect();
+        await sleep(500); // つながった直後は少し待つ
+        log("② UART サービスを探す…");
+        const service = await server.getPrimaryService(UART_SERVICE);
+        chars = await service.getCharacteristics();
+        break;
+      } catch (e) {
+        log(`   失敗: ${e.message}`);
+        if (attempt === 5) throw e;
+        if (device.gatt.connected) device.gatt.disconnect();
+        await sleep(1000);
+      }
+    }
+    chars.forEach((c) => {
+      const p = c.properties;
+      log(`   ${c.uuid.slice(4, 8)} notify=${p.notify} indicate=${p.indicate} write=${p.write}`);
+    });
+
+    // 「通知が来る方」を受信用、「書き込める方」を送信用として自動で見分ける
+    const txChar = chars.find((c) => c.properties.indicate || c.properties.notify);
+    rxChar = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse) || null;
+    if (!txChar) throw new Error("UART の受信用キャラクタリスティックが見つかりません");
+
+    log("③ 受信（通知）を開始…");
+    txChar.addEventListener("characteristicvaluechanged", onData);
+    await txChar.startNotifications();
+    log("   通知 OK");
+
+    setStatus(true, `接続済み: ${device.name}`);
+    $("notice").hidden = true;
+    log("接続しました。micro:bit から \"" + SHOT_COMMAND + "\" が届くと撮影します。");
+  } catch (e) {
+    setStatus(false, "未接続");
+    if (device && device.gatt.connected) device.gatt.disconnect();
+    if (e.name !== "NotFoundError") {
+      log(`接続エラー: [${e.name}] ${e.message}`);
+      // alert だとログ欄が更新されないので、ページ上部に表示する
+      const n = $("notice");
+      n.hidden = false;
+      n.textContent = "接続できませんでした：" + e.message + "（詳しくは右下のログを見てください）";
+    } else {
+      log("接続をキャンセルしました");
+    }
+  }
+};
+
+$("btnDisconnect").onclick = async () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  if (port) await closeUsb();
+};
+
+function onDisconnected() {
+  rxChar = null;
+  lineBuf = "";
+  setStatus(false, "未接続");
+  log("切断されました");
+}
+
+// ===== micro:bit (USB シリアル) — Windows/Mac の Chrome・Edge 用 =====
+let port = null;
+let reader = null;
+let writer = null;
+
+$("btnUsb").onclick = async () => {
+  try {
+    // 0x0d28 = micro:bit の USB ベンダー ID
+    port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x0d28 }] });
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    setStatus(true, "接続済み: USB");
+    $("notice").hidden = true;
+    log("USB で接続しました。micro:bit から \"" + SHOT_COMMAND + "\" が届くと撮影します。");
+    readUsbLoop();
+  } catch (e) {
+    port = null;
+    if (e.name === "NotFoundError") {
+      log("接続をキャンセルしました");
+    } else {
+      log(`USB 接続エラー: [${e.name}] ${e.message}`);
+      const n = $("notice");
+      n.hidden = false;
+      n.textContent = "USB で接続できませんでした：" + e.message +
+        "（MakeCode など、ほかのタブが micro:bit を使っていないか確認してください）";
+    }
+  }
+};
+
+async function readUsbLoop() {
+  try {
+    while (port && port.readable) {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          feedText(dec.decode(value, { stream: true }));
+        }
+      } finally {
+        reader.releaseLock();
+        reader = null;
+      }
+    }
+  } catch (e) {
+    log("USB 読み取りエラー: " + e.message);
+  }
+  if (port) await closeUsb();
+}
+
+async function closeUsb() {
+  const p = port;
+  port = null;
+  try { if (reader) await reader.cancel(); } catch {}
+  await sleep(50); // 読み取り側のロック解除を待つ
+  try { if (writer) { writer.releaseLock(); writer = null; } } catch {}
+  try { await p.close(); } catch {}
+  lineBuf = "";
+  setStatus(false, "未接続");
+  log("USB を切断しました");
+}
+
+// USB ケーブルが抜かれたとき
+if (navigator.serial) {
+  navigator.serial.addEventListener("disconnect", (e) => {
+    if (port && e.target === port) closeUsb();
+  });
+}
+
+// ===== 受信データの処理（Bluetooth・USB 共通） =====
+// micro:bit からのデータは細切れで届くので、改行までためてから処理する
+function onData(event) {
+  feedText(dec.decode(event.target.value));
+}
+
+function feedText(text) {
+  lineBuf += text;
+  let idx;
+  while ((idx = lineBuf.search(/[\r\n]/)) >= 0) {
+    const line = lineBuf.slice(0, idx).trim();
+    lineBuf = lineBuf.slice(idx + 1);
+    if (line) handleCommand(line);
+  }
+}
+
+function handleCommand(line) {
+  log(`受信: "${line}"`);
+  if (line.toLowerCase() === SHOT_COMMAND) {
+    takePhoto("micro:bit");
+  }
+}
+
+async function sendToMicrobit(text) {
+  try {
+    if (writer) await writer.write(enc.encode(text + "\n"));
+    else if (rxChar) await rxChar.writeValue(enc.encode(text + "\n"));
+  } catch (e) {
+    log("micro:bit への送信に失敗: " + e.message);
+  }
+}
+</script>
+</body>
+</html>
